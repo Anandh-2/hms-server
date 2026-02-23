@@ -4,6 +4,8 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+const isValidISODate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 // Apply for holiday leave (student only)
 router.post('/', authMiddleware, roleMiddleware('student'), async (req, res) => {
   try {
@@ -11,6 +13,25 @@ router.post('/', authMiddleware, roleMiddleware('student'), async (req, res) => 
 
     if (!from_date || !to_date || !reason) {
       return res.status(400).json({ message: 'From date, to date, and reason are required' });
+    }
+
+    if (!isValidISODate(from_date) || !isValidISODate(to_date)) {
+      return res.status(400).json({ message: 'Dates must be in YYYY-MM-DD format' });
+    }
+
+    const fromDate = new Date(`${from_date}T00:00:00`);
+    const toDate = new Date(`${to_date}T00:00:00`);
+
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      return res.status(400).json({ message: 'Invalid leave dates' });
+    }
+
+    if (toDate < fromDate) {
+      return res.status(400).json({ message: 'To date cannot be earlier than from date' });
+    }
+
+    if (reason.trim().length < 3) {
+      return res.status(400).json({ message: 'Reason must be at least 3 characters' });
     }
 
     // Get student ID
@@ -25,7 +46,7 @@ router.post('/', authMiddleware, roleMiddleware('student'), async (req, res) => 
     // Insert holiday leave application
     await db.query(
       'INSERT INTO holiday_leave_applications (student_id, from_date, to_date, reason) VALUES (?, ?, ?, ?)',
-      [studentId, from_date, to_date, reason]
+      [studentId, from_date, to_date, reason.trim()]
     );
 
     res.status(201).json({ message: 'Holiday leave application submitted successfully' });
@@ -116,11 +137,24 @@ router.put('/:id', authMiddleware, roleMiddleware('admin', 'warden'), async (req
       return res.status(400).json({ message: 'Valid status (approved/rejected) is required' });
     }
 
+    const [applications] = await db.query(
+      'SELECT id, status FROM holiday_leave_applications WHERE id = ?',
+      [applicationId]
+    );
+
+    if (applications.length === 0) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    if (applications[0].status !== 'pending') {
+      return res.status(400).json({ message: 'Only pending applications can be reviewed' });
+    }
+
     await db.query(
       `UPDATE holiday_leave_applications 
        SET status = ?, approved_by = ?, reviewed_at = NOW(), remarks = ?
        WHERE id = ?`,
-      [status, req.user.id, remarks, applicationId]
+      [status, req.user.id, remarks ? remarks.trim() : null, applicationId]
     );
 
     res.json({ message: `Application ${status} successfully` });

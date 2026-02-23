@@ -4,17 +4,38 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+const isValidISODate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const isWorkingDay = (dateString) => {
+  const date = new Date(`${dateString}T00:00:00`);
+  const day = date.getDay();
+  return day >= 1 && day <= 5;
+};
+
 // Mark college leave status (student only)
 router.post('/', authMiddleware, roleMiddleware('student'), async (req, res) => {
   try {
-    const { date, reason, status } = req.body;
+    const { date, reason } = req.body;
 
-    if (!date || !reason || !status) {
-      return res.status(400).json({ message: 'Date, reason, and status are required' });
+    if (!date || !reason) {
+      return res.status(400).json({ message: 'Date and reason are required' });
     }
 
-    if (!['inside_hostel', 'at_college'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+    if (!isValidISODate(date)) {
+      return res.status(400).json({ message: 'Date must be in YYYY-MM-DD format' });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (date !== today) {
+      return res.status(400).json({ message: 'College leave can only be marked for today' });
+    }
+
+    if (!isWorkingDay(date)) {
+      return res.status(400).json({ message: 'College leave is only applicable on working days (Mon-Fri)' });
+    }
+
+    if (reason.trim().length < 3) {
+      return res.status(400).json({ message: 'Reason must be at least 3 characters' });
     }
 
     // Get student ID
@@ -31,10 +52,10 @@ router.post('/', authMiddleware, roleMiddleware('student'), async (req, res) => 
       `INSERT INTO college_leave_status (student_id, date, reason, status)
        VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE reason = ?, status = ?`,
-      [studentId, date, reason, status, reason, status]
+      [studentId, date, reason.trim(), 'inside_hostel', reason.trim(), 'inside_hostel']
     );
 
-    res.status(201).json({ message: 'College leave status updated successfully' });
+    res.status(201).json({ message: 'College leave marked successfully (Inside Hostel)' });
   } catch (error) {
     console.error('College leave error:', error);
     res.status(500).json({ message: 'Server error' });

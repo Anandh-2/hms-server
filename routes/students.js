@@ -87,6 +87,30 @@ router.get('/', authMiddleware, roleMiddleware('admin', 'warden'), async (req, r
   }
 });
 
+// Get current student's own data
+router.get('/me/profile', authMiddleware, roleMiddleware('student'), async (req, res) => {
+  try {
+    const [students] = await db.query(`
+      SELECT 
+        s.*, 
+        u.username, 
+        u.email
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE u.id = ?
+    `, [req.user.id]);
+
+    if (students.length === 0) {
+      return res.status(404).json({ message: 'Student profile not found' });
+    }
+
+    res.json(students[0]);
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get student by ID (own data or admin/warden)
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -117,30 +141,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
     res.json(student);
   } catch (error) {
     console.error('Get student error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get current student's own data
-router.get('/me/profile', authMiddleware, roleMiddleware('student'), async (req, res) => {
-  try {
-    const [students] = await db.query(`
-      SELECT 
-        s.*, 
-        u.username, 
-        u.email
-      FROM students s
-      JOIN users u ON s.user_id = u.id
-      WHERE u.id = ?
-    `, [req.user.id]);
-
-    if (students.length === 0) {
-      return res.status(404).json({ message: 'Student profile not found' });
-    }
-
-    res.json(students[0]);
-  } catch (error) {
-    console.error('Get profile error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
